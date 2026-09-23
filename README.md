@@ -1,141 +1,138 @@
 # LLM Monitor
 
+**English** • [简体中文](README.zh-CN.md)
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white)](https://tauri.app)
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D6)](#)
 
-> 本地 LLM 用量看板：一个反向代理，把「今天到底烧了多少 token」变成实时可见的数字。
+> A local LLM usage dashboard: one reverse proxy that turns "how many tokens did I burn today?" into a number you can watch in real time.
 
-**LLM Monitor** 是一个 Tauri 桌面应用。它在本机起一个反向代理，你把 agent 的 baseURL 指过来，
-它在**原样转发 SSE 流**的同时解析 provider 返回的 usage，实时统计
-**输入（未命中）/ 缓存命中 / 缓存写入 / 输出** 四桶 token，以及 TTFT、总耗时、tok/s，
-并把每一次请求落进本地 SQLite 台账。附带一个**复读看门狗**：流式输出陷入死循环时弹系统通知报警。
+**LLM Monitor** is a Tauri desktop app. It runs a reverse proxy on your machine; you point your agent's baseURL at it, and while it **forwards the SSE stream untouched** it parses the `usage` the provider returns and tracks the four token buckets — **uncached input / cache read / cache write / output** — plus TTFT, total duration and tok/s. Every request lands in a local SQLite ledger. It also ships a **repetition watchdog** that fires a system notification when a streaming response gets stuck in a loop.
 
-**与 agent 无关** —— 任何能配 baseURL 的 agent（DSH、Claude Code、Codex、Cursor、自研脚本……）都能接入。
+**Agent-agnostic** — anything that lets you set a baseURL works (DSH, Claude Code, Codex, Cursor, your own scripts…).
 
 ```
-agent ──▶ http://127.0.0.1:8787/<endpoint-id> ──▶ LLM Monitor ──▶ 厂商 API
-                    （key 在这里被替换成真 key，usage 在这里被记账）
+agent ──▶ http://127.0.0.1:8787/<endpoint-id> ──▶ LLM Monitor ──▶ provider API
+                 (your key is swapped in here, usage is accounted here)
 ```
 
-## 特性
+## Features
 
-- **零侵入接入**：只改 agent 的 baseURL，不动 agent 代码、不装插件，代理挂了换回原地址即可。
-- **四桶 token 口径**：区分「输入未命中 / 缓存命中 / 缓存写入 / 输出」，缓存省了多少一眼看清。
-- **流式不打断**：SSE 逐 chunk 转发，统计在旁路解析，不给首字延迟加负担。
-- **按厂商 / 模型 / Agent 分组**：厂商 = baseURL，模型 = usage 里的 model，Agent = endpoint 名。
-- **Key 不出本机**：真实 API Key 只写本地 SQLite，代理出站时才注入。
-- **复读看门狗**：句级 period 1–4 连续重复检测，命中就发 Windows 通知 + 界面红条（仅报警，不干预数据流）。
-- **协议双支持**：`openai-completions` 与 `anthropic-messages`。
+- **Zero-touch integration** — change one baseURL. No agent code changes, no plugin. If the proxy misbehaves, point the baseURL back and you are done.
+- **Four token buckets** — uncached input, cache read, cache write and output are tracked separately, so you can see exactly how much caching is saving you.
+- **Streaming stays streaming** — SSE chunks are forwarded as they arrive and statistics are parsed on the side; first-token latency takes no detour.
+- **Grouped by provider / model / agent** — provider = baseURL, model = the `model` in `usage`, agent = endpoint name.
+- **Your key never leaves the machine** — the real API key is stored only in local SQLite and injected on the outbound request.
+- **Repetition watchdog** — sentence-level detection of period 1–4 repetition (≥12 repeats); on a hit you get a Windows notification and a red banner. Alert-only: the data path is never modified.
+- **Two protocols** — `openai-completions` and `anthropic-messages`.
 
-## 界面
+## UI
 
-- **总量卡片**：24h 请求数、输出 token、输入（未命中）、缓存命中、平均 TTFT、平均 tok/s
-- **实时请求流水**：时间 / Agent / 模型 / 状态 / TTFT / 耗时 / tok/s / 输入 / 缓存命中 / 输出
-- **按厂商分组表** + **端点管理**
+- **Summary cards** — requests (24h), output tokens, uncached input, cache read, avg TTFT, avg tok/s
+- **Live request feed** — time / agent / model / status / TTFT / duration / tok/s / input / cache read / output
+- **Per-provider breakdown table** + **endpoint management**
 
-## 安装
+## Install
 
-从 [Releases](https://github.com/z3347212573-cloud/llm-monitor/releases) 下载 `llm-monitor_x.y.z_x64-setup.exe`（NSIS 安装包，Windows x64），
-装完直接运行。首次启动会在 `%APPDATA%\com.xwzhao9.llmmonitor\` 建库。
+Download `llm-monitor_x.y.z_x64-setup.exe` from [Releases](https://github.com/z3347212573-cloud/llm-monitor/releases) (NSIS installer, Windows x64) and run it. On first launch the app creates its database under `%APPDATA%\com.xwzhao9.llmmonitor\`.
 
-> 未签名安装包，SmartScreen 可能提示「未知发布者」，选「更多信息 → 仍要运行」。
-> 介意的话请按下面的「从源码构建」自行编译。
+> The installer is unsigned, so SmartScreen may warn about an unknown publisher — choose "More info → Run anyway".
+> If that bothers you, build it yourself (see [Build from source](#build-from-source)).
 
-## 使用
+## Usage
 
-1. 启动应用，在「端点设置」里为**每个 agent** 建一个端点：
-   - `endpoint-id`：URL 路径标识，如 `dsh`、`claude-code`（字母/数字/`-`/`_`）
-   - `baseURL`：厂商真实地址（如 `https://open.bigmodel.cn/api/coding/paas/v4`）
-   - `API Key`：真实 key（只存本地 SQLite，永不出代理）
-   - `协议`：`openai-completions` 或 `anthropic-messages`
-2. 在 agent 里把 baseURL 改成 `http://127.0.0.1:8787/<endpoint-id>`，API Key 随便填
-   （代理会替换成真实 key）。
-3. 正常用 agent —— 面板实时出现请求流水与统计。
+1. Start the app and, under **Endpoints**, create one endpoint **per agent**:
+   - `endpoint-id` — the URL path segment, e.g. `dsh`, `claude-code` (letters, digits, `-`, `_`)
+   - `baseURL` — the provider's real address (e.g. `https://open.bigmodel.cn/api/coding/paas/v4`)
+   - `API Key` — the real key (stored only in local SQLite, never leaves the proxy)
+   - `protocol` — `openai-completions` or `anthropic-messages`
+2. In your agent, set the baseURL to `http://127.0.0.1:8787/<endpoint-id>` and put anything in the API key field — the proxy swaps in the real key.
+3. Use your agent as usual; the request feed and statistics show up live.
 
-## 架构
+## Architecture
 
 ```
-┌────────────────── Tauri 桌面应用（单进程）──────────────────┐
-│  Rust 后端                                                   │
-│   ├─ 反向代理 (axum): http://127.0.0.1:8787/<endpoint-id>/   │
-│   │    ├─ SSE 流式转发（anthropic-messages + openai-completions）
-│   │    ├─ 解析 usage：输入(未命中) / 缓存命中 / 缓存写入 / 输出
-│   │    ├─ 计时：TTFT、总耗时、tok/s
-│   │    └─ repetition guard：检测复读 → 通知 + 界面横幅（仅报警）
-│   └─ SQLite 台账 (%APPDATA%/com.xwzhao9.llmmonitor/llm-monitor.db)
-│  WebView2 前端
-│   └─ 总量卡片 + 按厂商/模型/Agent 分组 + 实时流水 + 端点管理
-└──────────────────────────────────────────────────────────────┘
+┌──────────────── Tauri desktop app (single process) ─────────────────┐
+│  Rust backend                                                        │
+│   ├─ Reverse proxy (axum): http://127.0.0.1:8787/<endpoint-id>/      │
+│   │    ├─ SSE streaming passthrough (anthropic-messages + openai-completions)
+│   │    ├─ usage parsing: uncached input / cache read / cache write / output
+│   │    ├─ timing: TTFT, total duration, tok/s
+│   │    └─ repetition guard: loop detected → notification + banner (alert only)
+│   └─ SQLite ledger (%APPDATA%/com.xwzhao9.llmmonitor/llm-monitor.db)
+│  WebView2 frontend
+│   └─ summary cards + provider/model/agent breakdown + live feed + endpoints
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
-源码结构：
+Source layout:
 
-| 路径 | 内容 |
+| Path | What it does |
 |---|---|
-| `src-tauri/src/proxy.rs` | axum 反向代理、SSE 转发、usage 解析、计时 |
-| `src-tauri/src/guard.rs` | 复读（repetition）检测 |
-| `src-tauri/src/db.rs` | SQLite 台账与聚合查询 |
-| `src-tauri/src/lib.rs` | Tauri 命令、托盘、通知、单实例 |
-| `src/main.ts` | 前端面板逻辑 |
-| `e2e-seed.mjs` / `e2e-test.mjs` | 造数据 + 端到端冒烟脚本 |
+| `src-tauri/src/proxy.rs` | axum reverse proxy, SSE passthrough, usage parsing, timing |
+| `src-tauri/src/guard.rs` | repetition detection |
+| `src-tauri/src/db.rs` | SQLite ledger and aggregate queries |
+| `src-tauri/src/lib.rs` | Tauri commands, tray, notifications, single instance |
+| `src/main.ts` | frontend dashboard logic |
+| `e2e-seed.mjs` / `e2e-test.mjs` | seed data + end-to-end smoke scripts |
 
-## 统计口径
+## How the numbers are counted
 
-| 指标 | 来源 |
+| Metric | Source |
 |---|---|
-| 输入（未命中）/ 缓存命中 / 缓存写入 / 输出 | provider 响应中的 usage。anthropic：`input_tokens` / `cache_read_input_tokens` / `cache_creation_input_tokens`；openai：`prompt_tokens` / `prompt_tokens_details.cached_tokens`；deepseek 系：`prompt_cache_hit_tokens` |
-| TTFT | 代理收到响应首字节 − 收到请求 |
+| Uncached input / cache read / cache write / output | `usage` in the provider response. anthropic: `input_tokens` / `cache_read_input_tokens` / `cache_creation_input_tokens`; openai: `prompt_tokens` / `prompt_tokens_details.cached_tokens`; deepseek-style: `prompt_cache_hit_tokens` |
+| TTFT | first byte of the upstream response − request received |
 | tok/s | `output_tokens / (duration − ttft)` |
-| 分组 | 厂商 = base_url；模型 = usage 中的 model；Agent = endpoint 名 |
+| Grouping | provider = base_url; model = `model` from `usage`; agent = endpoint name |
 
-> 口径以 **provider 返回的 usage 为准**，本地不做 tokenizer 估算 —— 所以数字和你账单里的对得上。
+> Figures come **straight from the provider's own `usage`** — there is no local tokenizer estimate, so they match what you are billed for.
 
-## 复读看门狗
+## Repetition watchdog
 
-流式输出经代理时，按句级分段做 period 1–4 的连续重复检测（≥12 次，纯标点分隔线进白名单）。命中后：
+While a stream passes through the proxy, output is split into sentences and checked for period 1–4 repetition (≥12 repeats; pure-punctuation ruler lines are whitelisted). On a hit:
 
-- 界面顶部红色横幅 + Windows 系统通知，提示「去对应 agent 按 Esc」；
-- **数据流不干预**（仅报警模式）；该请求行标 ⚠。
+- a red banner at the top of the window plus a Windows notification, telling you to press Esc in the offending agent;
+- **the data path is untouched** (alert-only mode); the request row is flagged ⚠.
 
-## 隐私
+## Privacy
 
-- 代理只监听 `127.0.0.1`，不对外暴露。
-- API Key 只存本机 `%APPDATA%` 下的 SQLite，随应用数据一起删除。
-- 请求/响应**只做旁路解析**，不落盘正文，只记 usage 与耗时元数据。
-- 应用不含任何统计上报。
+- The proxy binds to `127.0.0.1` only and is never exposed to the network.
+- API keys live in a SQLite file under `%APPDATA%` and go away with the app's data.
+- Request and response bodies are **parsed on the side and never persisted** — only usage counts and timing metadata are stored.
+- The app contains no telemetry of any kind.
 
-## 从源码构建
+## Build from source
 
-需要 Node.js 18+ 与 Rust 工具链（[rustup](https://rustup.rs)）：
+Requires Node.js 18+ and a Rust toolchain ([rustup](https://rustup.rs)):
 
 ```powershell
 npm install
-npm run tauri dev            # 开发
-npm run tauri build          # 打包（产物在 src-tauri/target/release/bundle/）
+npm run tauri dev            # dev
+npm run tauri build          # bundle (output under src-tauri/target/release/bundle/)
 ```
 
-只跑前端：`npm run build`；只做 Rust 类型检查：`cargo check --manifest-path src-tauri/Cargo.toml`。
+Frontend only: `npm run build`. Rust type-check only: `cargo check --manifest-path src-tauri/Cargo.toml`.
 
-本仓库的 `.npmrc` / Cargo 镜像配置是为了国内网络加速，**非必需**，删掉或改成官方源都能构建。
+The `.npmrc` / Cargo mirror settings in this repo exist for faster downloads in mainland China. They are **optional** — delete them or switch to the official registries and the build still works.
 
-## 已知限制
+## Known limitations
 
-- 仅打包/测试了 **Windows x64**（依赖 WebView2）；Tauri 理论上可跨平台，但未验证。
-- 复读检测只覆盖流式文本，非流式响应与多模态内容不检测。
-- 尚无成本（价格）估算功能 —— 见 Roadmap。
+- Only **Windows x64** is built and tested (it depends on WebView2). Tauri is cross-platform in principle, but that is unverified here.
+- Repetition detection only covers streaming text — non-streaming responses and multimodal content are not checked.
+- No cost estimation yet — see the roadmap.
 
 ## Roadmap
 
-- [ ] 按模型单价估算成本（各厂商价格表）
-- [ ] 数据导出 CSV / JSON
-- [ ] 时间范围筛选与趋势图
-- [ ] macOS / Linux 构建验证
-- [ ] i18n（English UI）
+- [ ] Cost estimation from per-model pricing
+- [ ] Export to CSV / JSON
+- [ ] Time-range filtering and trend charts
+- [ ] Verify macOS / Linux builds
+- [ ] i18n — English UI (the UI is currently Chinese)
 
-## 贡献
+## Contributing
 
-Issue 和 PR 都欢迎。改动代理/解析逻辑时，请说明用了哪家 provider 的哪种协议，方便回归。
+Issues and PRs are welcome. When you change the proxy or the usage parsing, please say which provider and which protocol you tested against, so it can be regression-checked.
 
 ## License
 
