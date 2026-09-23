@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LLM Monitor</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+
+  <body>
+    <main class="container">
+      <header class="topbar">
+        <h1><span class="logo-mark"></span>LLM Monitor</h1>
+        <div class="proxy-pill">
+          <span class="pill-dot"></span>代理运行中 · <code>127.0.0.1:8787</code>
+        </div>
+      </header>
+
+      <div id="alert-banner" class="alert hidden">
+        <span id="alert-text"></span>
+        <button id="alert-close" title="关闭">×</button>
+      </div>
+
+      <section id="cards" class="cards">
+        <div class="card"><div class="card-label"><span class="dot" style="--c:#5b8def"></span>请求数（24h）</div><div class="card-value" id="c-requests">–</div></div>
+        <div class="card"><div class="card-label"><span class="dot" style="--c:#4cc38a"></span>输出 tokens</div><div class="card-value" id="c-output">–</div></div>
+        <div class="card"><div class="card-label"><span class="dot" style="--c:#e0a458"></span>输入（未命中）</div><div class="card-value" id="c-input">–</div></div>
+        <div class="card"><div class="card-label"><span class="dot" style="--c:#39c5cf"></span>缓存命中</div><div class="card-value" id="c-cache">–</div></div>
+        <div class="card"><div class="card-label"><span class="dot" style="--c:#a78bfa"></span>平均 TTFT</div><div class="card-value" id="c-ttft">–</div></div>
+        <div class="card"><div class="card-label"><span class="dot" style="--c:#f472b6"></span>平均 tok/s</div><div class="card-value" id="c-tps">–</div></div>
+      </section>
+
+      <div class="mid-row">
+        <section class="panel mid-panel">
+          <h2>实时请求流水</h2>
+          <div class="table-wrap req-scroll">
+            <table id="req-table">
+              <thead>
+                <tr>
+                  <th>时间</th><th>Agent</th><th>模型</th><th>状态</th>
+                  <th>TTFT</th><th>耗时</th><th>tok/s</th>
+                  <th>输入</th><th>缓存命中</th><th>输出</th><th></th>
+                </tr>
+              </thead>
+              <tbody id="req-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel side-panel">
+          <h2>按厂商</h2>
+          <div class="table-wrap side-scroll">
+            <table class="gtable" id="g-provider"></table>
+          </div>
+        </section>
+      </div>
+
+      <section class="panel ep-panel">
+        <h2>端点设置（每个 agent 一个 endpoint-id）</h2>
+        <div class="hint">
+          在 agent 里把 baseURL 改成 <code>http://127.0.0.1:8787/&lt;endpoint-id&gt;</code>，
+          API Key 随便填（代理会替换成这里保存的真实 key）。
+          每个 agent 单独一个 endpoint-id；协议按 agent 的接口选（openai / anthropic）。
+        </div>
+        <div class="ep-grid">
+          <form id="ep-form" class="ep-form">
+            <input id="ep-id" placeholder="endpoint-id（如 dsh）" required />
+            <input id="ep-name" placeholder="显示名（如 DSH）" required />
+            <input id="ep-url" class="span2" placeholder="厂商 baseURL（https://...）" required />
+            <input id="ep-key" placeholder="真实 API Key" required />
+            <select id="ep-protocol">
+              <option value="openai">openai-completions</option>
+              <option value="anthropic">anthropic-messages</option>
+            </select>
+            <button type="submit" class="span2">保存端点</button>
+          </form>
+          <div class="table-wrap ep-scroll">
+            <table id="ep-table"></table>
+          </div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
