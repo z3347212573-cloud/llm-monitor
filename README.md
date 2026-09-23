@@ -36,7 +36,7 @@ agent ──▶ http://127.0.0.1:8787/<endpoint-id> ──▶ LLM Monitor ──
 
 ## 安装
 
-从 [Releases](../../releases) 下载 `llm-monitor_x.y.z_x64-setup.exe`（NSIS 安装包，Windows x64），
+从 [Releases](https://github.com/z3347212573-cloud/llm-monitor/releases) 下载 `llm-monitor_x.y.z_x64-setup.exe`（NSIS 安装包，Windows x64），
 装完直接运行。首次启动会在 `%APPDATA%\com.xwzhao9.llmmonitor\` 建库。
 
 > 未签名安装包，SmartScreen 可能提示「未知发布者」，选「更多信息 → 仍要运行」。
